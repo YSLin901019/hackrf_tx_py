@@ -1,0 +1,13 @@
+# 發射信號設定
+# signal_mode: hopping 或 single
+# start_frequency: 起始頻率 (MHz)
+# stop_frequency: 停止頻率 (MHz)
+# bandwidth: 頻寬 (Hz) 3MHz ~ 5MHz
+# power: 功率 (dBm)
+
+signal_mode: single
+start_frequency: 3000
+stop_frequency: 3020
+bandwidth: 3e6
+power: -60
+hop_rate: 1000
