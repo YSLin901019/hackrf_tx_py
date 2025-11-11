@@ -1,13 +1,27 @@
 # 發射信號設定
-# signal_mode: hopping 或 single
-# start_frequency: 起始頻率 (MHz)
-# stop_frequency: 停止頻率 (MHz)
-# bandwidth: 頻寬 (Hz) 3MHz ~ 5MHz
-# power: 功率 (dBm)
+# signal_mode: 
+# hopping: 跳頻模式
+# single: 定頻模式
 
+# center_frequency: 定頻頻率 (MHz)
+# start_frequency: 跳頻起始頻率 (MHz)
+# stop_frequency: 跳頻停止頻率 (MHz)
+
+# bandwidth: 頻寬 (Hz) 3MHz ~ 5MHz
+# power: 功率 (dBm) 40dBm
+# hop_rate: 跳頻速率 (Hz)
+
+# 模式
 signal_mode: single
-start_frequency: 3000
-stop_frequency: 3020
-bandwidth: 3e6
-power: -60
+
+# 定頻中心頻率
+center_frequency: 2650
+
+# 跳頻頻率區間
+start_frequency: 2000
+stop_frequency: 2020
+
+bandwidth: 5e6
+tx_vga_gain: 40
+cw_amplitude: 127
 hop_rate: 1000

@@ -15,12 +15,13 @@ class IQGenerator():
         self.total_duration = 0.1  
 
         self.bandwidth = None  
-        self.num_sinc_waves = 300 
+        self.num_sinc_waves = 300
 
         self.start_frequency = None
         self.stop_frequency = None
         self.center_frequency = None
-        self.hopping_frequency_list = np.array([-7.5e6,-4e6, -1.5e6, 1.5e6, 4e6, 7.5e6])
+        # self.hopping_frequency_list = np.array([-7.5e6,-4e6, -1.5e6, 1.5e6, 4e6, 7.5e6])
+        self.hopping_frequency_list = np.array([-4e6, -1.5e6, 1.5e6, 4e6, 7.5e6])
         self.single_frequency_list = np.array([0])
         self.signal_mode = None # will be "hopping" or "single"
 
@@ -31,6 +32,8 @@ class IQGenerator():
             self.generate_hopping_iq()
         elif self.signal_mode == "single":
             self.generate_single_iq()
+        elif self.signal_mode == "cw":
+            self.generate_cw()
         else:
             raise ValueError("Invalid signal mode")
 
@@ -41,25 +44,28 @@ class IQGenerator():
         
         # 讀取並轉換參數類型
         self.signal_mode = config['signal_mode']
+        self.center_frequency = float(config['center_frequency']) * 1e6  # MHz 轉 Hz
         self.start_frequency = float(config['start_frequency']) * 1e6  # MHz 轉 Hz
         self.stop_frequency = float(config['stop_frequency']) * 1e6  # MHz 轉 Hz
         self.bandwidth = float(config['bandwidth'])  # 確保是數值類型
-        self.power = int(config['power'])  # dBm
+        self.tx_vga_gain = int(config['tx_vga_gain'])  # dBm
+        self.cw_amplitude = int(config['cw_amplitude'])
         self.hop_rate = float(config['hop_rate'])
         self.hop_duration = 1.0 / self.hop_rate  # 0.001 seconds per hop
         self.num_hops = int(self.total_duration * self.hop_rate)
         self.samples_per_hop = int(self.sample_rate * self.hop_duration)
 
         # 計算 power 對應的 tx_vga_gain
-        tx_vga_gain = -self.power - 20
+        tx_vga_gain = self.tx_vga_gain
 
         # 配置到 hackrf_one
-        self.center_frequency = (self.start_frequency + self.stop_frequency) / 2
         self.hackrf_one.file_name = self.file_name
-        self.hackrf_one.center_freq = self.center_frequency
         self.hackrf_one.tx_vga_gain = tx_vga_gain
 
     def generate_hopping_iq(self):
+        self.hackrf_one.center_freq = (self.start_frequency + self.stop_frequency) / 2
+        # 獲取到 start_frequency 和 stop_frequency 後重新設計 hopping_frequency_list
+        
         # Generate a pseudo-random hop sequence
         np.random.seed(42)  # For reproducibility
         hop_sequence = np.random.choice(self.hopping_frequency_list, size=self.num_hops, replace=True)
@@ -113,6 +119,7 @@ class IQGenerator():
         self.file_name = './hopping_signal.iq'
 
     def generate_single_iq(self):
+        self.hackrf_one.center_freq = self.center_frequency
         # Generate a pseudo-random hop sequence
         np.random.seed(42)  # For reproducibility
         hop_sequence = np.random.choice(self.single_frequency_list, size=self.num_hops, replace=True)
@@ -166,18 +173,27 @@ class IQGenerator():
         iq_data.tofile('single_signal.iq')
         self.file_name = './single_signal.iq'
 
+    def generate_cw(self):
+
+        self.hackrf_one.center_freq = self.center_frequency
+        self.hackrf_one.cw_signal_amplitude = self.cw_amplitude
+
+        
     def tx_signal(self):
         if self.signal_mode == "hopping":
             self.hackrf_one.file_name = "hopping_signal.iq"
+            self.hackrf_one.TX()
         elif self.signal_mode == "single":
             self.hackrf_one.file_name = "single_signal.iq"
+            self.hackrf_one.TX()
+        elif self.signal_mode == "cw":
+            self.hackrf_one.CW()
         else:
             raise ValueError("Invalid signal mode")
-        self.hackrf_one.TX()
+
 
 if __name__ == "__main__":
     iq_generator = IQGenerator()
     iq_generator.load_config()
     iq_generator.generate_iq()
-    print(iq_generator.bandwidth)
     iq_generator.tx_signal()
