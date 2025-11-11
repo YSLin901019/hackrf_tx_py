@@ -13,7 +13,7 @@
 # duty_cycle: 工作週期 (0.0 ~ 1.0)，例如 0.3 表示每 1ms 內只有 30% 的時間有訊號
 
 # 模式
-signal_mode: single
+signal_mode: hopping
 bandwidth: 3e6
 hop_rate: 1000
 tx_vga_gain: 20

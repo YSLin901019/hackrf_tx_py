@@ -21,9 +21,10 @@ class IQGenerator():
         self.stop_frequency = None
         self.center_frequency = None
         # self.hopping_frequency_list = np.array([-7.5e6,-4e6, -1.5e6, 1.5e6, 4e6, 7.5e6])
-        self.hopping_frequency_list = np.array([-4e6, -2e6, 0, 2e6, 4e6])
+        self.hopping_frequency_list = np.array([-2e6, -1e6, 0, 1e6, 2e6])
         self.single_frequency_list = np.array([0])
         self.signal_mode = None # will be "hopping" or "single"
+        self.num_carriers = 300  # 使用多個載波來填滿頻寬
 
         self.hackrf_one = HackRFOne()
 
@@ -109,7 +110,6 @@ class IQGenerator():
             
             # 方法：使用多載波疊加來模擬矩形頻譜
             # 在頻域上產生矩形（佔據指定頻寬），時域上會是 sinc-like 的包絡
-            num_carriers = 50  # 使用多個載波來填滿頻寬
             hop_signal = np.zeros(self.samples_per_hop, dtype=np.complex64)
             
             # 只在 duty cycle 時間內生成訊號
@@ -121,9 +121,9 @@ class IQGenerator():
             nyquist_freq = self.sample_rate / 2  # ±10 MHz
             valid_carriers = 0  # 計數有效的載波數量
             
-            for k in range(num_carriers):
+            for k in range(self.num_carriers):
                 # 計算每個載波相對於中心頻率的偏移
-                freq_offset = (k - num_carriers/2) * (self.bandwidth / num_carriers)
+                freq_offset = (k - self.num_carriers/2) * (self.bandwidth / self.num_carriers)
                 carrier_freq = f_center + freq_offset
                 
                 # 檢查是否超出 Nyquist 頻率範圍，如果超出則跳過此載波
@@ -211,7 +211,6 @@ class IQGenerator():
             
             # 方法：使用多載波疊加來模擬矩形頻譜
             # 在頻域上產生矩形（佔據指定頻寬），時域上會是 sinc-like 的包絡
-            num_carriers = 50  # 使用多個載波來填滿頻寬
             hop_signal = np.zeros(self.samples_per_hop, dtype=np.complex64)
             
             # 只在 duty cycle 時間內生成訊號
@@ -223,9 +222,9 @@ class IQGenerator():
             nyquist_freq = self.sample_rate / 2  # ±10 MHz
             valid_carriers = 0  # 計數有效的載波數量
             
-            for k in range(num_carriers):
+            for k in range(self.num_carriers):
                 # 計算每個載波相對於中心頻率的偏移
-                freq_offset = (k - num_carriers/2) * (self.bandwidth / num_carriers)
+                freq_offset = (k - self.num_carriers/2) * (self.bandwidth / self.num_carriers)
                 carrier_freq = f_center + freq_offset
                 
                 # 檢查是否超出 Nyquist 頻率範圍，如果超出則跳過此載波
