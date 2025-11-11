@@ -16,12 +16,13 @@ class IQGenerator():
 
         self.bandwidth = None  
         self.num_sinc_waves = 300
+        self.duty_cycle = 0.5  # 預設 50% duty cycle
 
         self.start_frequency = None
         self.stop_frequency = None
         self.center_frequency = None
         # self.hopping_frequency_list = np.array([-7.5e6,-4e6, -1.5e6, 1.5e6, 4e6, 7.5e6])
-        self.hopping_frequency_list = np.array([-4e6, -1.5e6, 1.5e6, 4e6, 7.5e6])
+        self.hopping_frequency_list = np.array([-3e6, -1.5e6, 0, 1.5e6, 3e6])
         self.single_frequency_list = np.array([0])
         self.signal_mode = None # will be "hopping" or "single"
 
@@ -54,6 +55,9 @@ class IQGenerator():
         self.hop_duration = 1.0 / self.hop_rate  # 0.001 seconds per hop
         self.num_hops = int(self.total_duration * self.hop_rate)
         self.samples_per_hop = int(self.sample_rate * self.hop_duration)
+        
+        # 讀取 duty_cycle，如果沒有設定則使用預設值
+        self.duty_cycle = float(config.get('duty_cycle', 0.5))  # 預設 50%
 
         # 計算 power 對應的 tx_vga_gain
         tx_vga_gain = self.tx_vga_gain
@@ -63,47 +67,80 @@ class IQGenerator():
         self.hackrf_one.tx_vga_gain = tx_vga_gain
 
     def generate_hopping_iq(self):
-        self.hackrf_one.center_freq = (self.start_frequency + self.stop_frequency) / 2
-        # 獲取到 start_frequency 和 stop_frequency 後重新設計 hopping_frequency_list
+        # 使用固定的中心頻率，在 20MHz 頻寬內跳頻
+        self.hackrf_one.center_freq = self.center_frequency
         
         # Generate a pseudo-random hop sequence
+        # hopping_frequency_list 中的頻率是相對於中心頻率的偏移量
         np.random.seed(42)  # For reproducibility
         hop_sequence = np.random.choice(self.hopping_frequency_list, size=self.num_hops, replace=True)
 
         # Time vector for one hop
         t_hop = np.linspace(0, self.hop_duration, self.samples_per_hop, endpoint=False)
 
-        # Generate the complex baseband signal with single sinc wave per hop
+        # Generate the complex baseband signal with rectangular spectrum (square in frequency domain)
         signal = np.zeros(self.num_hops * self.samples_per_hop, dtype=np.complex64)
+        
+        # 計算 duty cycle 相關的樣本數
+        active_samples = int(self.samples_per_hop * self.duty_cycle)  # 有訊號的樣本數
+        
+        # 設定切換時間（佔 active 時間的比例）
+        transition_ratio = 0.02  # 2% 用於切換
+        transition_samples = int(active_samples * transition_ratio)
+        
         for i in range(self.num_hops):
             f_center = hop_sequence[i]
             start_idx = i * self.samples_per_hop
             end_idx = start_idx + self.samples_per_hop
             
-            # 生成單個sinc波 - 時域上就是一個sinc函數
-            sinc_signal = np.zeros_like(t_hop, dtype=np.complex64)
+            # 方法：使用多載波疊加來模擬矩形頻譜
+            # 在頻域上產生矩形（佔據指定頻寬），時域上會是 sinc-like 的包絡
+            num_carriers = 50  # 使用多個載波來填滿頻寬
+            hop_signal = np.zeros(self.samples_per_hop, dtype=np.complex64)
             
-            # 在hop時間內均勻分佈多個sinc波
-            for k in range(self.num_sinc_waves):
-                # 計算每個sinc波的時間偏移
-                offset = (k - self.num_sinc_waves//2) * self.hop_duration / self.num_sinc_waves
-                t_offset = t_hop - self.hop_duration/2 + offset
+            # 只在 duty cycle 時間內生成訊號
+            t_active = t_hop[:active_samples]
+            active_signal = np.zeros(active_samples, dtype=np.complex64)
+            
+            # 在指定頻寬內均勻分布多個載波
+            # 確保不超過 Nyquist 頻率限制
+            nyquist_freq = self.sample_rate / 2  # ±10 MHz
+            valid_carriers = 0  # 計數有效的載波數量
+            
+            for k in range(num_carriers):
+                # 計算每個載波相對於中心頻率的偏移
+                freq_offset = (k - num_carriers/2) * (self.bandwidth / num_carriers)
+                carrier_freq = f_center + freq_offset
                 
-                # 生成sinc波
-                sinc_component = np.sinc(self.bandwidth * t_offset)
+                # 檢查是否超出 Nyquist 頻率範圍，如果超出則跳過此載波
+                if abs(carrier_freq) >= nyquist_freq:
+                    continue
                 
-                # 加入固定幅度和相位變化
-                amplitude = 1.0  # 固定振幅
+                valid_carriers += 1
+                
+                # 生成載波（只在 active 時間內）
+                carrier = np.exp(1j * 2 * np.pi * carrier_freq * t_active)
+                
+                # 隨機相位避免峰值過高
                 phase = np.random.uniform(0, 2*np.pi)
-                
-                # 組合多個sinc波
-                sinc_signal += amplitude * sinc_component * np.exp(1j * phase)
+                active_signal += np.exp(1j * phase) * carrier
             
-            # 加入載波頻率
-            carrier = 1*np.exp(1j * 2 * np.pi * f_center * t_hop)
-            hop_signal = sinc_signal * carrier
+            # 正規化振幅（使用實際有效的載波數量）
+            if valid_carriers > 0:
+                active_signal /= np.sqrt(valid_carriers)
             
-            signal[start_idx:end_idx] = hop_signal * np.hanning(self.samples_per_hop)
+            # 應用窗函數（只在 active 部分）
+            window = np.ones(active_samples, dtype=np.float32)
+            if transition_samples > 0:
+                # 上升邊緣
+                window[:transition_samples] = np.linspace(0, 1, transition_samples) ** 2
+                # 下降邊緣
+                window[-transition_samples:] = np.linspace(1, 0, transition_samples) ** 2
+            
+            # 將 active 訊號放入 hop_signal 的前面部分，後面保持為 0
+            hop_signal[:active_samples] = active_signal * window
+            
+            signal[start_idx:end_idx] = hop_signal
 
         # Normalize the signal
         signal /= np.max(np.abs(signal))
@@ -128,37 +165,69 @@ class IQGenerator():
         # Time vector for one hop
         t_hop = np.linspace(0, self.hop_duration, self.samples_per_hop, endpoint=False)
 
-        # Generate the complex baseband signal with single sinc wave per hop
+        # Generate the complex baseband signal with rectangular spectrum (square in frequency domain)
         signal = np.zeros(self.num_hops * self.samples_per_hop, dtype=np.complex64)
+        
+        # 計算 duty cycle 相關的樣本數
+        active_samples = int(self.samples_per_hop * self.duty_cycle)  # 有訊號的樣本數
+        
+        # 設定切換時間（佔 active 時間的比例）
+        transition_ratio = 0.02  # 2% 用於切換
+        transition_samples = int(active_samples * transition_ratio)
+        
         for i in range(self.num_hops):
             f_center = hop_sequence[i]
             start_idx = i * self.samples_per_hop
             end_idx = start_idx + self.samples_per_hop
             
-            # 生成單個sinc波 - 時域上就是一個sinc函數
-            sinc_signal = np.zeros_like(t_hop, dtype=np.complex64)
+            # 方法：使用多載波疊加來模擬矩形頻譜
+            # 在頻域上產生矩形（佔據指定頻寬），時域上會是 sinc-like 的包絡
+            num_carriers = 50  # 使用多個載波來填滿頻寬
+            hop_signal = np.zeros(self.samples_per_hop, dtype=np.complex64)
             
-            # 在hop時間內均勻分佈多個sinc波
-            for k in range(self.num_sinc_waves):
-                # 計算每個sinc波的時間偏移
-                offset = (k - self.num_sinc_waves//2) * self.hop_duration / self.num_sinc_waves
-                t_offset = t_hop - self.hop_duration/2 + offset
+            # 只在 duty cycle 時間內生成訊號
+            t_active = t_hop[:active_samples]
+            active_signal = np.zeros(active_samples, dtype=np.complex64)
+            
+            # 在指定頻寬內均勻分布多個載波
+            # 確保不超過 Nyquist 頻率限制
+            nyquist_freq = self.sample_rate / 2  # ±10 MHz
+            valid_carriers = 0  # 計數有效的載波數量
+            
+            for k in range(num_carriers):
+                # 計算每個載波相對於中心頻率的偏移
+                freq_offset = (k - num_carriers/2) * (self.bandwidth / num_carriers)
+                carrier_freq = f_center + freq_offset
                 
-                # 生成sinc波
-                sinc_component = np.sinc(self.bandwidth * t_offset)
+                # 檢查是否超出 Nyquist 頻率範圍，如果超出則跳過此載波
+                if abs(carrier_freq) >= nyquist_freq:
+                    continue
                 
-                # 加入固定幅度和相位變化
-                amplitude = 1.0  # 固定振幅
+                valid_carriers += 1
+                
+                # 生成載波（只在 active 時間內）
+                carrier = np.exp(1j * 2 * np.pi * carrier_freq * t_active)
+                
+                # 隨機相位避免峰值過高
                 phase = np.random.uniform(0, 2*np.pi)
-                
-                # 組合多個sinc波
-                sinc_signal += amplitude * sinc_component * np.exp(1j * phase)
+                active_signal += np.exp(1j * phase) * carrier
             
-            # 加入載波頻率
-            carrier = 1*np.exp(1j * 2 * np.pi * f_center * t_hop)
-            hop_signal = sinc_signal * carrier
+            # 正規化振幅（使用實際有效的載波數量）
+            if valid_carriers > 0:
+                active_signal /= np.sqrt(valid_carriers)
             
-            signal[start_idx:end_idx] = hop_signal * np.hanning(self.samples_per_hop)
+            # 應用窗函數（只在 active 部分）
+            window = np.ones(active_samples, dtype=np.float32)
+            if transition_samples > 0:
+                # 上升邊緣
+                window[:transition_samples] = np.linspace(0, 1, transition_samples) ** 2
+                # 下降邊緣
+                window[-transition_samples:] = np.linspace(1, 0, transition_samples) ** 2
+            
+            # 將 active 訊號放入 hop_signal 的前面部分，後面保持為 0
+            hop_signal[:active_samples] = active_signal * window
+            
+            signal[start_idx:end_idx] = hop_signal
 
         # Normalize the signal
         signal /= np.max(np.abs(signal))

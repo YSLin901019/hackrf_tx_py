@@ -10,9 +10,13 @@
 # bandwidth: 頻寬 (Hz) 3MHz ~ 5MHz
 # power: 功率 (dBm) 40dBm
 # hop_rate: 跳頻速率 (Hz)
+# duty_cycle: 工作週期 (0.0 ~ 1.0)，例如 0.3 表示每 1ms 內只有 30% 的時間有訊號
 
 # 模式
-signal_mode: single
+signal_mode: hopping
+bandwidth: 5e6
+hop_rate: 1000
+tx_vga_gain: 20
 
 # 定頻中心頻率
 center_frequency: 2650
@@ -20,8 +24,9 @@ center_frequency: 2650
 # 跳頻頻率區間
 start_frequency: 2000
 stop_frequency: 2020
+duty_cycle: 0.7
 
-bandwidth: 5e6
-tx_vga_gain: 40
+# cw 模式
 cw_amplitude: 127
-hop_rate: 1000
+
+
