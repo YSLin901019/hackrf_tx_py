@@ -15,14 +15,13 @@ class IQGenerator():
         self.total_duration = 0.1  
 
         self.bandwidth = None  
-        self.num_sinc_waves = 300
         self.duty_cycle = 0.5  # 預設 50% duty cycle
 
         self.start_frequency = None
         self.stop_frequency = None
         self.center_frequency = None
         # self.hopping_frequency_list = np.array([-7.5e6,-4e6, -1.5e6, 1.5e6, 4e6, 7.5e6])
-        self.hopping_frequency_list = np.array([-3e6, -1.5e6, 0, 1.5e6, 3e6])
+        self.hopping_frequency_list = np.array([-4e6, -2e6, 0, 2e6, 4e6])
         self.single_frequency_list = np.array([0])
         self.signal_mode = None # will be "hopping" or "single"
 
@@ -69,6 +68,21 @@ class IQGenerator():
     def generate_hopping_iq(self):
         # 使用固定的中心頻率，在 20MHz 頻寬內跳頻
         self.hackrf_one.center_freq = self.center_frequency
+        
+        # 打印實際發射頻率資訊
+        print("=" * 60)
+        print("跳頻訊號生成資訊")
+        print("=" * 60)
+        print(f"中心頻率 (fc): {self.center_frequency / 1e6:.2f} MHz")
+        print(f"跳頻偏移量: {[f'{f/1e6:.2f} MHz' for f in self.hopping_frequency_list]}")
+        print(f"\n實際發射頻率 (fc + 偏移量):")
+        for offset in self.hopping_frequency_list:
+            actual_freq = self.center_frequency + offset
+            print(f"  {actual_freq / 1e6:.2f} MHz (中心頻 {self.center_frequency/1e6:.2f} MHz + 偏移 {offset/1e6:.2f} MHz)")
+        print(f"\n訊號頻寬: {self.bandwidth / 1e6:.2f} MHz")
+        print(f"跳頻速率: {self.hop_rate} Hz ({1000/self.hop_rate:.2f} ms/hop)")
+        print(f"Duty Cycle: {self.duty_cycle * 100:.1f}%")
+        print("=" * 60 + "\n")
         
         # Generate a pseudo-random hop sequence
         # hopping_frequency_list 中的頻率是相對於中心頻率的偏移量
@@ -157,6 +171,21 @@ class IQGenerator():
 
     def generate_single_iq(self):
         self.hackrf_one.center_freq = self.center_frequency
+        
+        # 打印實際發射頻率資訊
+        print("=" * 60)
+        print("定頻訊號生成資訊")
+        print("=" * 60)
+        print(f"中心頻率 (fc): {self.center_frequency / 1e6:.2f} MHz")
+        print(f"\n實際發射頻率:")
+        for offset in self.single_frequency_list:
+            actual_freq = self.center_frequency + offset
+            print(f"  {actual_freq / 1e6:.2f} MHz (固定頻率，無跳頻)")
+        print(f"\n開關速率: {self.hop_rate} Hz ({1000/self.hop_rate:.2f} ms/hop)")
+        print(f"訊號頻寬: {self.bandwidth / 1e6:.2f} MHz")
+        print(f"Duty Cycle: {self.duty_cycle * 100:.1f}%")
+        print("=" * 60 + "\n")
+        
         # Generate a pseudo-random hop sequence
         np.random.seed(42)  # For reproducibility
         hop_sequence = np.random.choice(self.single_frequency_list, size=self.num_hops, replace=True)
