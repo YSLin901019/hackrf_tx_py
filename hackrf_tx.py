@@ -17,12 +17,12 @@ class HackRFOne():
 
         cmd = f"hackrf_transfer -t {self.file_name} -f {self.center_freq} -s {self.sample_rate} -a {self.amplifier_enable} -R -p {self.antenna_port_enable} -x {self.tx_vga_gain}"
         print(cmd)
-        subprocess.run(cmd, shell=True)
+        subprocess.run(cmd, shell=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 
     def CW(self):
         cmd = f"hackrf_transfer -f {self.center_freq} -s {self.sample_rate} -a {self.amplifier_enable} -R -p {self.antenna_port_enable} -c {self.cw_signal_amplitude}"
         print(cmd)
-        subprocess.run(cmd, shell=True)
+        subprocess.run(cmd, shell=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 
 if __name__ == "__main__":
     hackrf = HackRFOne()

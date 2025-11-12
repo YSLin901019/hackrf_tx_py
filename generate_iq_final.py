@@ -27,6 +27,128 @@ class IQGenerator():
         self.num_carriers = 300  # 使用多個載波來填滿頻寬
 
         self.hackrf_one = HackRFOne()
+        
+        # HackRF 輸出功率實測數據表
+        # 格式: (freq_MHz, tx_vga_gain, measured_power_dBm)
+        self.tx_gain_table = [
+            # tx_vga_gain = 10
+            (1350, 10, -70.9),
+            (1400, 10, -70.4),
+            (1500, 10, -70.4),
+            (1600, 10, -70.0),
+            (1650, 10, -71.2),
+            (1700, 10, -72.8),
+            (1800, 10, -73.4),
+            (1900, 10, -72.4),
+            (2000, 10, -71.8),
+            (2100, 10, -72.5),
+            (2170, 10, -72.6),
+            (2175, 10, -65.0),
+            (2180, 10, -64.0),
+            (2200, 10, -63.97),
+            (2300, 10, -61.4),
+            (2400, 10, -57.9),
+            (2500, 10, -58.3),
+            (2600, 10, -59.1),
+            (2650, 10, -58.5),
+            (2700, 10, -58.6),
+            # tx_vga_gain = 15
+            (1350, 15, -66.3),
+            (1400, 15, -66.0),
+            (1500, 15, -66.0),
+            (1600, 15, -65.5),
+            (1650, 15, -66.7),
+            (1700, 15, -68.0),
+            (1800, 15, -68.9),
+            (1900, 15, -68.0),
+            (2000, 15, -67.0),
+            (2100, 15, -68.0),
+            (2170, 15, -68.4),
+            (2175, 15, -60.0),
+            (2180, 15, -59.4),
+            (2200, 15, -56.9),
+            (2300, 15, -53.3),
+            (2400, 15, -54.0),
+            (2500, 15, -54.6),
+            (2600, 15, -54.1),
+            (2650, 15, -54.2),
+            (2700, 15, -54.1),
+            # tx_vga_gain = 20
+            (1350, 20, -60.4),
+            (1400, 20, -59.6),
+            (1500, 20, -59.6),
+            (1600, 20, -59.4),
+            (1650, 20, -60.32),
+            (1700, 20, -61.95),
+            (1800, 20, -62.8),
+            (1900, 20, -62.1),
+            (2000, 20, -61.0),
+            (2100, 20, -61.9),
+            (2170, 20, -53.6),
+            (2175, 20, -54.6),
+            (2180, 20, -54.4),
+            (2200, 20, -53.5),
+            (2300, 20, -50.9),
+            (2400, 20, -47.2),
+            (2500, 20, -47.5),
+            (2600, 20, -48.0),
+            (2650, 20, -47.2),
+            (2700, 20, -47.2),
+        ]
+
+    def get_measured_power(self, freq_MHz: float, tx_vga_gain: int) -> float:
+        """
+        根據輸入頻率與 tx_vga_gain 查表，回傳對應功率(dBm)。
+        若無精確頻點，則使用線性插值計算。
+        注意：2170 MHz 是硬體分界點，不會跨越此界限進行插值。
+        """
+        same_gain_entries = [e for e in self.tx_gain_table if e[1] == tx_vga_gain]
+        if not same_gain_entries:
+            print(f"⚠️ 無對應 tx_vga_gain={tx_vga_gain} 的資料")
+            return None
+
+        # 硬體分界點
+        HARDWARE_BOUNDARY = 2170.0
+        
+        # 根據硬體分界，分成兩組數據
+        if freq_MHz <= HARDWARE_BOUNDARY:
+            # 使用 <= 2170 MHz 的硬體數據
+            valid_entries = [e for e in same_gain_entries if e[0] <= HARDWARE_BOUNDARY]
+        else:
+            # 使用 > 2170 MHz 的硬體數據
+            valid_entries = [e for e in same_gain_entries if e[0] > HARDWARE_BOUNDARY]
+        
+        if not valid_entries:
+            print(f"⚠️ 在對應硬體區間內無 tx_vga_gain={tx_vga_gain} 的資料")
+            return None
+        
+        # 檢查是否有精確匹配
+        exact_match = [e for e in valid_entries if abs(e[0] - freq_MHz) < 0.01]
+        if exact_match:
+            return exact_match[0][2]
+        
+        # 按頻率排序
+        valid_entries = sorted(valid_entries, key=lambda x: x[0])
+        
+        # 如果查詢頻率在範圍外，返回最近的端點值
+        if freq_MHz < valid_entries[0][0]:
+            return valid_entries[0][2]
+        if freq_MHz > valid_entries[-1][0]:
+            return valid_entries[-1][2]
+        
+        # 線性插值：找到相鄰的兩個點
+        for i in range(len(valid_entries) - 1):
+            f1, gain1, p1 = valid_entries[i]
+            f2, gain2, p2 = valid_entries[i + 1]
+            
+            if f1 <= freq_MHz <= f2:
+                # 線性插值公式：p = p1 + (p2 - p1) * (f - f1) / (f2 - f1)
+                interpolated_power = p1 + (p2 - p1) * (freq_MHz - f1) / (f2 - f1)
+                return interpolated_power
+        
+        # 如果沒有找到合適的區間（理論上不應該發生），返回最近的點
+        nearest = min(valid_entries, key=lambda x: abs(x[0] - freq_MHz))
+        return nearest[2]
 
     def generate_iq(self):
         if self.signal_mode == "hopping":
@@ -80,6 +202,7 @@ class IQGenerator():
         for offset in self.hopping_frequency_list:
             actual_freq = self.center_frequency + offset
             print(f"  {actual_freq / 1e6:.2f} MHz (中心頻 {self.center_frequency/1e6:.2f} MHz + 偏移 {offset/1e6:.2f} MHz)")
+        print(f"輸出功率: {self.get_measured_power(self.center_frequency / 1e6, self.tx_vga_gain):.2f} dBm")
         print(f"\n訊號頻寬: {self.bandwidth / 1e6:.2f} MHz")
         print(f"跳頻速率: {self.hop_rate} Hz ({1000/self.hop_rate:.2f} ms/hop)")
         print(f"Duty Cycle: {self.duty_cycle * 100:.1f}%")
@@ -181,6 +304,7 @@ class IQGenerator():
         for offset in self.single_frequency_list:
             actual_freq = self.center_frequency + offset
             print(f"  {actual_freq / 1e6:.2f} MHz (固定頻率，無跳頻)")
+        print(f"輸出功率: {self.get_measured_power(self.center_frequency / 1e6, self.tx_vga_gain):.2f} dBm")
         print(f"\n開關速率: {self.hop_rate} Hz ({1000/self.hop_rate:.2f} ms/hop)")
         print(f"訊號頻寬: {self.bandwidth / 1e6:.2f} MHz")
         print(f"Duty Cycle: {self.duty_cycle * 100:.1f}%")
