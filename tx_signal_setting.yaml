@@ -14,12 +14,12 @@
 
 # 模式
 signal_mode: single
-bandwidth: 5e6
+bandwidth: 7e6
 hop_rate: 1000
-tx_vga_gain: 15
+tx_vga_gain: 20
 
 # 定頻中心頻率
-center_frequency: 1353
+center_frequency: 2233
 
 # 跳頻頻率區間
 start_frequency: 2000

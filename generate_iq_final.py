@@ -100,7 +100,9 @@ class IQGenerator():
         """
         根據輸入頻率與 tx_vga_gain 查表，回傳對應功率(dBm)。
         若無精確頻點，則使用線性插值計算。
-        注意：2170 MHz 是硬體分界點，不會跨越此界限進行插值。
+        注意：
+        1. 2170 MHz 是硬體分界點，不會跨越此界限進行插值。
+        2. 查詢表基於 5 MHz 頻寬測量，會根據實際頻寬自動修正功率值。
         """
         same_gain_entries = [e for e in self.tx_gain_table if e[1] == tx_vga_gain]
         if not same_gain_entries:
@@ -125,30 +127,42 @@ class IQGenerator():
         # 檢查是否有精確匹配
         exact_match = [e for e in valid_entries if abs(e[0] - freq_MHz) < 0.01]
         if exact_match:
-            return exact_match[0][2]
-        
-        # 按頻率排序
-        valid_entries = sorted(valid_entries, key=lambda x: x[0])
-        
-        # 如果查詢頻率在範圍外，返回最近的端點值
-        if freq_MHz < valid_entries[0][0]:
-            return valid_entries[0][2]
-        if freq_MHz > valid_entries[-1][0]:
-            return valid_entries[-1][2]
-        
-        # 線性插值：找到相鄰的兩個點
-        for i in range(len(valid_entries) - 1):
-            f1, gain1, p1 = valid_entries[i]
-            f2, gain2, p2 = valid_entries[i + 1]
+            base_power = exact_match[0][2]
+        else:
+            # 按頻率排序
+            valid_entries = sorted(valid_entries, key=lambda x: x[0])
             
-            if f1 <= freq_MHz <= f2:
-                # 線性插值公式：p = p1 + (p2 - p1) * (f - f1) / (f2 - f1)
-                interpolated_power = p1 + (p2 - p1) * (freq_MHz - f1) / (f2 - f1)
-                return interpolated_power
+            # 如果查詢頻率在範圍外，返回最近的端點值
+            if freq_MHz < valid_entries[0][0]:
+                base_power = valid_entries[0][2]
+            elif freq_MHz > valid_entries[-1][0]:
+                base_power = valid_entries[-1][2]
+            else:
+                # 線性插值：找到相鄰的兩個點
+                base_power = None
+                for i in range(len(valid_entries) - 1):
+                    f1, gain1, p1 = valid_entries[i]
+                    f2, gain2, p2 = valid_entries[i + 1]
+                    
+                    if f1 <= freq_MHz <= f2:
+                        # 線性插值公式：p = p1 + (p2 - p1) * (f - f1) / (f2 - f1)
+                        base_power = p1 + (p2 - p1) * (freq_MHz - f1) / (f2 - f1)
+                        break
+                
+                # 如果沒有找到合適的區間（理論上不應該發生），返回最近的點
+                if base_power is None:
+                    nearest = min(valid_entries, key=lambda x: abs(x[0] - freq_MHz))
+                    base_power = nearest[2]
         
-        # 如果沒有找到合適的區間（理論上不應該發生），返回最近的點
-        nearest = min(valid_entries, key=lambda x: abs(x[0] - freq_MHz))
-        return nearest[2]
+        # 頻寬修正：查詢表基於 5 MHz 測量
+        # 修正公式：correction_dB = 10 * log10(5 MHz / 實際頻寬)
+        REFERENCE_BANDWIDTH = 5e6  # 5 MHz
+        bandwidth_correction = 10 * np.log10(REFERENCE_BANDWIDTH / self.bandwidth)
+        
+        # 應用修正
+        corrected_power = base_power + bandwidth_correction
+        
+        return corrected_power
 
     def generate_iq(self):
         if self.signal_mode == "hopping":
@@ -202,8 +216,15 @@ class IQGenerator():
         for offset in self.hopping_frequency_list:
             actual_freq = self.center_frequency + offset
             print(f"  {actual_freq / 1e6:.2f} MHz (中心頻 {self.center_frequency/1e6:.2f} MHz + 偏移 {offset/1e6:.2f} MHz)")
-        print(f"輸出功率: {self.get_measured_power(self.center_frequency / 1e6, self.tx_vga_gain):.2f} dBm")
+        
+        # 計算並顯示輸出功率（含頻寬修正）
+        measured_power = self.get_measured_power(self.center_frequency / 1e6, self.tx_vga_gain)
+        bandwidth_correction = 10 * np.log10(5e6 / self.bandwidth) if self.bandwidth != 5e6 else 0.0
         print(f"\n訊號頻寬: {self.bandwidth / 1e6:.2f} MHz")
+        if abs(bandwidth_correction) > 0.01:
+            print(f"輸出功率: {measured_power:.2f} dBm")
+        else:
+            print(f"輸出功率: {measured_power:.2f} dBm")
         print(f"跳頻速率: {self.hop_rate} Hz ({1000/self.hop_rate:.2f} ms/hop)")
         print(f"Duty Cycle: {self.duty_cycle * 100:.1f}%")
         print("=" * 60 + "\n")
@@ -304,9 +325,16 @@ class IQGenerator():
         for offset in self.single_frequency_list:
             actual_freq = self.center_frequency + offset
             print(f"  {actual_freq / 1e6:.2f} MHz (固定頻率，無跳頻)")
-        print(f"輸出功率: {self.get_measured_power(self.center_frequency / 1e6, self.tx_vga_gain):.2f} dBm")
-        print(f"\n開關速率: {self.hop_rate} Hz ({1000/self.hop_rate:.2f} ms/hop)")
-        print(f"訊號頻寬: {self.bandwidth / 1e6:.2f} MHz")
+        
+        # 計算並顯示輸出功率（含頻寬修正）
+        measured_power = self.get_measured_power(self.center_frequency / 1e6, self.tx_vga_gain)
+        bandwidth_correction = 10 * np.log10(5e6 / self.bandwidth) if self.bandwidth != 5e6 else 0.0
+        print(f"\n訊號頻寬: {self.bandwidth / 1e6:.2f} MHz")
+        if abs(bandwidth_correction) > 0.01:
+            print(f"輸出功率: {measured_power:.2f} dBm")
+        else:
+            print(f"輸出功率: {measured_power:.2f} dBm")
+        print(f"開關速率: {self.hop_rate} Hz ({1000/self.hop_rate:.2f} ms/hop)")
         print(f"Duty Cycle: {self.duty_cycle * 100:.1f}%")
         print("=" * 60 + "\n")
         
