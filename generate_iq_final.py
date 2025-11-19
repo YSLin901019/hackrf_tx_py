@@ -17,14 +17,14 @@ class IQGenerator():
         self.bandwidth = None  
         self.duty_cycle = 0.5  # 預設 50% duty cycle
 
-        self.start_frequency = None
-        self.stop_frequency = None
         self.center_frequency = None
         # self.hopping_frequency_list = np.array([-7.5e6,-4e6, -1.5e6, 1.5e6, 4e6, 7.5e6])
         self.hopping_frequency_list = np.array([-2e6, -1e6, 0, 1e6, 2e6])
         self.single_frequency_list = np.array([0])
         self.signal_mode = None # will be "hopping" or "single"
         self.num_carriers = 300  # 使用多個載波來填滿頻寬
+        self.antenna_index = None
+        self.antenna_angle = None
 
         self.hackrf_one = HackRFOne()
         
@@ -160,8 +160,11 @@ class IQGenerator():
         bandwidth_correction = 10 * np.log10(REFERENCE_BANDWIDTH / self.bandwidth)
         
         # 應用修正
-        corrected_power = base_power + bandwidth_correction
+        corrected_power = base_power + bandwidth_correction 
         
+        # 直接調整以利優話
+        corrected_power -= 15
+
         return corrected_power
 
     def generate_iq(self):
@@ -182,8 +185,6 @@ class IQGenerator():
         # 讀取並轉換參數類型
         self.signal_mode = config['signal_mode']
         self.center_frequency = float(config['center_frequency']) * 1e6  # MHz 轉 Hz
-        self.start_frequency = float(config['start_frequency']) * 1e6  # MHz 轉 Hz
-        self.stop_frequency = float(config['stop_frequency']) * 1e6  # MHz 轉 Hz
         self.bandwidth = float(config['bandwidth'])  # 確保是數值類型
         self.tx_vga_gain = int(config['tx_vga_gain'])  # dBm
         self.cw_amplitude = int(config['cw_amplitude'])
@@ -191,6 +192,8 @@ class IQGenerator():
         self.hop_duration = 1.0 / self.hop_rate  # 0.001 seconds per hop
         self.num_hops = int(self.total_duration * self.hop_rate)
         self.samples_per_hop = int(self.sample_rate * self.hop_duration)
+        self.antenna_index = int(config['antenna_index'])
+        self.antenna_angle = float(22.5+(self.antenna_index-1)*45)
         
         # 讀取 duty_cycle，如果沒有設定則使用預設值
         self.duty_cycle = float(config.get('duty_cycle', 0.5))  # 預設 50%
@@ -213,9 +216,9 @@ class IQGenerator():
         print(f"中心頻率 (fc): {self.center_frequency / 1e6:.2f} MHz")
         print(f"跳頻偏移量: {[f'{f/1e6:.2f} MHz' for f in self.hopping_frequency_list]}")
         print(f"\n實際發射頻率 (fc + 偏移量):")
-        for offset in self.hopping_frequency_list:
+        for index, offset in enumerate(self.hopping_frequency_list):
             actual_freq = self.center_frequency + offset
-            print(f"  {actual_freq / 1e6:.2f} MHz (中心頻 {self.center_frequency/1e6:.2f} MHz + 偏移 {offset/1e6:.2f} MHz)")
+            print(f"Channel {index+1}: {actual_freq / 1e6:.2f} MHz (中心頻 {self.center_frequency/1e6:.2f} MHz + 偏移 {offset/1e6:.2f} MHz)")
         
         # 計算並顯示輸出功率（含頻寬修正）
         measured_power = self.get_measured_power(self.center_frequency / 1e6, self.tx_vga_gain)
@@ -227,6 +230,7 @@ class IQGenerator():
             print(f"輸出功率: {measured_power:.2f} dBm")
         print(f"跳頻速率: {self.hop_rate} Hz ({1000/self.hop_rate:.2f} ms/hop)")
         print(f"Duty Cycle: {self.duty_cycle * 100:.1f}%")
+        print(f"訊號來源方向： {self.antenna_angle} 度")
         print("=" * 60 + "\n")
         
         # Generate a pseudo-random hop sequence
@@ -336,6 +340,7 @@ class IQGenerator():
             print(f"輸出功率: {measured_power:.2f} dBm")
         print(f"開關速率: {self.hop_rate} Hz ({1000/self.hop_rate:.2f} ms/hop)")
         print(f"Duty Cycle: {self.duty_cycle * 100:.1f}%")
+        print(f"訊號來源方向： {self.antenna_angle} 度")
         print("=" * 60 + "\n")
         
         # Generate a pseudo-random hop sequence
