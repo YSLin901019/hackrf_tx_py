@@ -163,7 +163,7 @@ class IQGenerator():
         corrected_power = base_power + bandwidth_correction 
         
         # 直接調整以利優話
-        corrected_power -= 15
+        corrected_power -= 6
 
         return corrected_power
 
